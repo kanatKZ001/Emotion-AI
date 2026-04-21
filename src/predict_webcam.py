@@ -1,62 +1,20 @@
 import cv2
-import numpy as np
 
 try:
-    from .preprocess import preprocess_face
-    from .model import load_emotion_model, get_emotion_label
-except ImportError:
-    from preprocess import preprocess_face
-    from model import load_emotion_model, get_emotion_label
-
-
-CASCADE_PATH = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-
-
-def load_face_detector():
-    detector = cv2.CascadeClassifier(CASCADE_PATH)
-
-    if detector.empty():
-        raise FileNotFoundError(f"Could not load Haar Cascade from: {CASCADE_PATH}")
-
-    return detector
-
-
-def detect_faces(gray_frame: np.ndarray, detector):
-    faces = detector.detectMultiScale(
-        gray_frame,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(30, 30)
+    from .model import load_emotion_model
+    from .utils import (
+        load_face_detector,
+        detect_faces,
+        predict_emotion,
+        draw_prediction,
     )
-    return faces
-
-
-def predict_emotion(face_roi: np.ndarray, model):
-    processed_face = preprocess_face(face_roi)
-    prediction = model.predict(processed_face, verbose=0)[0]
-
-    predicted_index = int(np.argmax(prediction))
-    confidence = float(np.max(prediction))
-    emotion_label = get_emotion_label(predicted_index)
-
-    return emotion_label, confidence
-
-
-def draw_prediction(frame: np.ndarray, face, emotion_label: str, confidence: float):
-    x, y, w, h = face
-
-    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-    text = f"{emotion_label} ({confidence:.2f})"
-    cv2.putText(
-        frame,
-        text,
-        (x, y - 10),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (0, 255, 0),
-        2,
-        cv2.LINE_AA
+except ImportError:
+    from model import load_emotion_model
+    from utils import (
+        load_face_detector,
+        detect_faces,
+        predict_emotion,
+        draw_prediction,
     )
 
 
