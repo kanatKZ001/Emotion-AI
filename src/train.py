@@ -2,41 +2,49 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 try:
-    from .model import build_baseline_model, NUM_CLASSES
+    from .model import build_baseline_model
 except ImportError:
-    from model import build_baseline_model, NUM_CLASSES
+    from model import build_baseline_model
 
 
-DEFAULT_DATASET_PATH = Path("data/fer2013.csv")
+DEFAULT_TRAIN_DIR = Path("data/fer2013/train")
+DEFAULT_TEST_DIR = Path("data/fer2013/test")
 DEFAULT_MODEL_OUTPUT = Path("models/emotion_model.h5")
 DEFAULT_HISTORY_PLOT = Path("assets/training_history.png")
 
+IMAGE_SIZE = (48, 48)
+CLASS_NAMES = ["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train baseline Emotion AI model on FER-2013 CSV dataset.")
+    parser = argparse.ArgumentParser(description="Train baseline Emotion AI model from image folders.")
     parser.add_argument(
-        "--data",
+        "--train-dir",
         type=str,
-        default=str(DEFAULT_DATASET_PATH),
-        help="Path to FER-2013 CSV file."
+        default=str(DEFAULT_TRAIN_DIR),
+        help="Path to training directory."
+    )
+    parser.add_argument(
+        "--test-dir",
+        type=str,
+        default=str(DEFAULT_TEST_DIR),
+        help="Path to test directory."
     )
     parser.add_argument(
         "--model-output",
         type=str,
         default=str(DEFAULT_MODEL_OUTPUT),
-        help="Path to save the trained model."
+        help="Path to save trained model."
     )
     parser.add_argument(
         "--history-plot",
         type=str,
         default=str(DEFAULT_HISTORY_PLOT),
-        help="Path to save the training history plot."
+        help="Path to save training history plot."
     )
     parser.add_argument(
         "--epochs",
@@ -53,66 +61,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def parse_pixels(pixel_sequence: str) -> np.ndarray:
-    """
-    Convert a FER-2013 pixel string into a 48x48 numpy array.
-    """
-    pixels = np.fromstring(pixel_sequence, dtype=np.float32, sep=" ")
-
-    if pixels.size != 48 * 48:
-        raise ValueError(f"Expected 2304 pixels, got {pixels.size}")
-
-    pixels = pixels.reshape((48, 48, 1))
-    pixels /= 255.0
-    return pixels
-
-
-def load_fer2013_dataset(csv_path: str | Path):
-    """
-    Load FER-2013 dataset from CSV with columns:
-    emotion, pixels, Usage
-    """
-    csv_path = Path(csv_path)
-
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Dataset file not found: {csv_path}")
-
-    df = pd.read_csv(csv_path)
-
-    required_columns = {"emotion", "pixels", "Usage"}
-    missing_columns = required_columns - set(df.columns)
-
-    if missing_columns:
-        raise ValueError(f"Missing required columns: {missing_columns}")
-
-    x = np.stack(df["pixels"].apply(parse_pixels).to_numpy())
-    y = to_categorical(df["emotion"].astype(int), num_classes=NUM_CLASSES)
-    usage = df["Usage"].astype(str)
-
-    x_train = x[usage == "Training"]
-    y_train = y[usage == "Training"]
-
-    x_val = x[usage == "PublicTest"]
-    y_val = y[usage == "PublicTest"]
-
-    x_test = x[usage == "PrivateTest"]
-    y_test = y[usage == "PrivateTest"]
-
-    if len(x_train) == 0 or len(x_val) == 0 or len(x_test) == 0:
-        raise ValueError("One of the dataset splits is empty. Check the 'Usage' column values.")
-
-    return x_train, y_train, x_val, y_val, x_test, y_test
-
-
 def save_history_plot(history, output_path: str | Path):
-    """
-    Save training/validation accuracy and loss curves.
-    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     history_data = history.history
-
     epochs = range(1, len(history_data["loss"]) + 1)
 
     plt.figure(figsize=(10, 6))
@@ -132,21 +85,61 @@ def save_history_plot(history, output_path: str | Path):
 def main():
     args = parse_args()
 
-    data_path = Path(args.data)
+    train_dir = Path(args.train_dir)
+    test_dir = Path(args.test_dir)
     model_output_path = Path(args.model_output)
     history_plot_path = Path(args.history_plot)
+
+    if not train_dir.exists():
+        raise FileNotFoundError(f"Train directory not found: {train_dir}")
+
+    if not test_dir.exists():
+        raise FileNotFoundError(f"Test directory not found: {test_dir}")
 
     model_output_path.parent.mkdir(parents=True, exist_ok=True)
     history_plot_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print("Loading dataset...")
-    x_train, y_train, x_val, y_val, x_test, y_test = load_fer2013_dataset(data_path)
+    train_datagen = ImageDataGenerator(
+        rescale=1.0 / 255.0,
+        validation_split=0.2
+    )
 
-    print(f"Training samples:   {len(x_train)}")
-    print(f"Validation samples: {len(x_val)}")
-    print(f"Test samples:       {len(x_test)}")
+    test_datagen = ImageDataGenerator(rescale=1.0 / 255.0)
 
-    print("Building model...")
+    train_generator = train_datagen.flow_from_directory(
+        directory=str(train_dir),
+        target_size=IMAGE_SIZE,
+        color_mode="grayscale",
+        classes=CLASS_NAMES,
+        class_mode="categorical",
+        batch_size=args.batch_size,
+        shuffle=True,
+        subset="training"
+    )
+
+    val_generator = train_datagen.flow_from_directory(
+        directory=str(train_dir),
+        target_size=IMAGE_SIZE,
+        color_mode="grayscale",
+        classes=CLASS_NAMES,
+        class_mode="categorical",
+        batch_size=args.batch_size,
+        shuffle=False,
+        subset="validation"
+    )
+
+    test_generator = test_datagen.flow_from_directory(
+        directory=str(test_dir),
+        target_size=IMAGE_SIZE,
+        color_mode="grayscale",
+        classes=CLASS_NAMES,
+        class_mode="categorical",
+        batch_size=args.batch_size,
+        shuffle=False
+    )
+
+    print("Class indices:", train_generator.class_indices)
+
     model = build_baseline_model()
 
     callbacks = [
@@ -169,26 +162,21 @@ def main():
         ),
     ]
 
-    print("Starting training...")
     history = model.fit(
-        x_train,
-        y_train,
-        validation_data=(x_val, y_val),
+        train_generator,
+        validation_data=val_generator,
         epochs=args.epochs,
-        batch_size=args.batch_size,
         callbacks=callbacks,
-        verbose=1,
+        verbose=1
     )
 
-    print("Evaluating on test set...")
-    test_loss, test_accuracy = model.evaluate(x_test, y_test, verbose=0)
+    test_loss, test_accuracy = model.evaluate(test_generator, verbose=0)
 
     print(f"Test loss: {test_loss:.4f}")
     print(f"Test accuracy: {test_accuracy:.4f}")
 
     save_history_plot(history, history_plot_path)
     print(f"Saved training history plot to: {history_plot_path}")
-
     print(f"Best model saved to: {model_output_path}")
 
 
