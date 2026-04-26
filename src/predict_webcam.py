@@ -50,7 +50,11 @@ def main():
 
         cv2.imshow("Emotion AI - Webcam", frame)
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("q") or key == 27:
+            break
+
+        if cv2.getWindowProperty("Emotion AI - Webcam", cv2.WND_PROP_VISIBLE) < 1:
             break
 
     cap.release()

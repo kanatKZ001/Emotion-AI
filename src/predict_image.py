@@ -84,8 +84,17 @@ def main():
 
     if args.show:
         cv2.imshow("Emotion Prediction", result_image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        print("Press any key in the image window to close.")
+
+        while True:
+            key = cv2.waitKey(1) & 0xFF
+            if key != 255:
+                break
+
+            if cv2.getWindowProperty("Emotion Prediction", cv2.WND_PROP_VISIBLE) < 1:
+                break
+
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
